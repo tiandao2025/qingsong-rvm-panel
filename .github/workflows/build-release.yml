@@ -6,7 +6,7 @@ on:
       version:
         description: '发布版本号（例：v1.0.1，可省略 v 前缀）'
         required: false
-        default: 'v1.0.1'
+        default: 'v1.0.2'
         type: string
   push:
     tags:
@@ -59,6 +59,29 @@ jobs:
             --add-data "rvm_worker.py;." `
             rvm_panel.py
 
+      - name: Download bundled ffmpeg (win64)
+        shell: pwsh
+        run: |
+          $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+          Write-Host "下载 ffmpeg：$url"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg-dist.zip -UseBasicParsing
+          Expand-Archive -Path ffmpeg-dist.zip -DestinationPath ffmpeg-dist -Force
+          New-Item -ItemType Directory -Force -Path ffmpeg-bin | Out-Null
+          foreach ($n in @('ffmpeg.exe', 'ffprobe.exe')) {
+            $f = Get-ChildItem -Path ffmpeg-dist -Recurse -Filter $n -File | Select-Object -First 1
+            if (-not $f) { throw "压缩包内未找到 $n" }
+            Copy-Item $f.FullName "ffmpeg-bin/$n"
+            Write-Host ("提取 {0} <- {1} ({2:N1} MB)" -f $n, $f.FullName, ($f.Length / 1MB))
+          }
+          $lic = Get-ChildItem -Path ffmpeg-dist -Recurse -File |
+            Where-Object { $_.Name -match '^(LICENSE|COPYING)' } | Select-Object -First 1
+          if ($lic) {
+            Copy-Item $lic.FullName ffmpeg-bin/FFMPEG-LICENSE.txt
+          } else {
+            Invoke-WebRequest -Uri 'https://www.gnu.org/licenses/gpl-3.0.txt' -OutFile ffmpeg-bin/FFMPEG-LICENSE.txt -UseBasicParsing
+          }
+          Get-ChildItem ffmpeg-bin | Select-Object Name, Length
+
       - name: Assemble portable package
         shell: pwsh
         run: |
@@ -67,10 +90,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path pkg | Out-Null
           Copy-Item dist/qingsong-rvm-panel.exe pkg/
           Copy-Item release-assets/* pkg/
+          Copy-Item ffmpeg-bin/ffmpeg.exe,ffmpeg-bin/ffprobe.exe,ffmpeg-bin/FFMPEG-LICENSE.txt pkg/
           Compress-Archive -Path pkg/* -DestinationPath $zip -CompressionLevel Optimal
-          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Get-ChildItem pkg | Select-Object Name, Length
-          Write-Host "打包完成：$zip"
+          Write-Host "打包完成：$zip（$([math]::Round((Get-Item $zip).Length/1MB,1)) MB）"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -83,6 +106,6 @@ jobs:
             青松口播抠像面板 ${{ steps.ver.outputs.version }}（Windows x64，解压即用）
 
             - 修复：输出视频自动保留原片音轨（MP4 直接带原声，PNG 序列同时导出同名 .m4a），无需再手动合音轨
-            - 运行需本机已安装 ffmpeg（已在 PATH 时自动启用；未安装时输出仍为无声）
+            - 新增：发行包内置 ffmpeg.exe / ffprobe.exe（与面板 exe 同级），下载后无需再单独安装 ffmpeg 即可保留原声
 
             使用：解压 → 双击 `一键装环境.bat`（一次性安装 GPU 依赖）→ 双击 `qingsong-rvm-panel.exe`

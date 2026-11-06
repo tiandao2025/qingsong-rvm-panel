@@ -26,7 +26,7 @@ import traceback
 from tkinter import filedialog, messagebox, ttk
 
 APP_TITLE = "青松口播抠像面板"
-APP_VERSION = "v1.0"
+APP_VERSION = "v1.0.2"
 APP_BRAND = "青松设计"
 
 
@@ -648,6 +648,9 @@ class RvmPanel(tk.Tk):
 
         env = dict(os.environ)
         env["PYTHONIOENCODING"] = "utf-8"
+        # 把解压目录（即 exe 所在目录）显式传给 worker，
+        # 便于它在同目录找到随包自带的 ffmpeg.exe / ffprobe.exe
+        env["QINGSONG_APP_DIR"] = BASE_DIR
         cmd = [py, "-u", WORKER, "--config", cfg_path]
 
         def work():

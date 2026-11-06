@@ -156,16 +156,27 @@ _LOCALAPPDATA = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData
 _APP_DIR = (os.path.dirname(os.path.abspath(sys.executable))
             if getattr(sys, "frozen", False)
             else os.path.dirname(os.path.abspath(__file__)))
+# 发行包里 rvm_worker.py 是从 exe 内解压到临时目录运行的，__file__ 并不指向用户解压目录；
+# 面板启动本脚本时会通过 QINGSONG_APP_DIR 传入真实解压目录（ffmpeg.exe 与面板 exe 同级），
+# 另外工作目录也被面板设置为该目录，二者都作为候选，保证随包自带的 ffmpeg 优先命中。
+_BUNDLE_DIRS = []
+for _d in (os.environ.get("QINGSONG_APP_DIR"), os.getcwd(), _APP_DIR):
+    if _d and _d not in _BUNDLE_DIRS:
+        _BUNDLE_DIRS.append(_d)
 _FFMPEG_CANDIDATES = [
-    os.path.join(_APP_DIR, "ffmpeg.exe"),
-    os.path.join(_APP_DIR, "bin", "ffmpeg.exe"),
+    os.path.join(d, n)
+    for d in _BUNDLE_DIRS
+    for n in ("ffmpeg.exe", os.path.join("bin", "ffmpeg.exe"))
+] + [
     os.path.join(_LOCALAPPDATA, "Programs", "ffmpeg", "bin", "ffmpeg.exe"),
     r"C:\ffmpeg\bin\ffmpeg.exe",
     r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
 ]
 _FFPROBE_CANDIDATES = [
-    os.path.join(_APP_DIR, "ffprobe.exe"),
-    os.path.join(_APP_DIR, "bin", "ffprobe.exe"),
+    os.path.join(d, n)
+    for d in _BUNDLE_DIRS
+    for n in ("ffprobe.exe", os.path.join("bin", "ffprobe.exe"))
+] + [
     os.path.join(_LOCALAPPDATA, "Programs", "ffmpeg", "bin", "ffprobe.exe"),
     r"C:\ffmpeg\bin\ffprobe.exe",
     r"C:\Program Files\ffmpeg\bin\ffprobe.exe",
@@ -174,15 +185,15 @@ _TOOL_CACHE = {}
 
 
 def _find_tool(name, candidates):
-    """优先 PATH 查找，失败再逐个尝试常见安装路径。"""
+    """优先随包/常见安装路径，最后再退回 PATH 查找。"""
     import shutil
 
-    found = shutil.which(name)
-    if found:
-        return found
     for c in candidates:
         if os.path.isfile(c):
             return c
+    found = shutil.which(name)
+    if found:
+        return found
     return ""
 
 
