@@ -11,6 +11,11 @@ AIGC:
 
 # 青松口播抠像面板 · Qingsong RVM Panel
 
+> **不想折腾环境？直接下解压即用包**
+> 👉 [Releases 下载 qingsong-rvm-panel-v1.0.0-win64.zip](https://github.com/tiandao2025/qingsong-rvm-panel/releases/latest)
+> 解压 → 双击 `一键装环境.bat`（装一次依赖，约 2~3 GB）→ 双击 `qingsong-rvm-panel.exe` 开始抠像。
+> 面板本身已打包成单个 exe（无需 Python 即可打开界面），只有 GPU 依赖需要一次性安装。
+
 一个跑在 Windows 本地的**口播视频一键抠像**小工具：不上传云端、不排队、不限时长、无水印，全部在一张显卡上完成。
 
 面板只是「遥控器」，真正的视频抠像由 [RVM（Robust Video Matting）](https://github.com/PeterL1n/RobustVideoMatting) + PyTorch + CUDA 在本地完成。
