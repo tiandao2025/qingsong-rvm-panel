@@ -1,0 +1,23 @@
+青松口播抠像面板 (Qingsong RVM Panel)
+Copyright (C) 2026 青松设计 / 设计师青松
+
+本程序是自由软件，你可以依据自由软件基金会发布的 GNU 通用公共许可证
+第 3 版（GNU General Public License v3.0）的条款重新分发和/或修改它。
+
+本程序基于 Robust Video Matting（作者 PeterL1n，同样以 GPLv3 授权），
+遵循 GPLv3 的要求一并以 GPLv3 分发。
+
+发布本程序时，不提供任何担保；甚至不提供适销性或特定用途适用性的默示担保。
+详见 GNU 通用公共许可证。
+
+许可证全文：https://www.gnu.org/licenses/gpl-3.0.txt
+GPLv3 中文参考：https://www.gnu.org/licenses/gpl-3.0.zh-cn.html
+
+完整源代码：
+  https://github.com/tiandao2025/qingsong-rvm-panel
+
+上游算法项目：
+  https://github.com/PeterL1n/RobustVideoMatting
+
+按 GPLv3 要求：你若再分发本程序（含修改版），必须同样以 GPLv3 授权，
+并向接收者提供对应的完整源代码。

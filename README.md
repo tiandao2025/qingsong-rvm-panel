@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: 1ebc98092bcde066fca4114d7810e399_86336073d9e411f1ba6252540064ee0f
+    ReservedCode1: glpzvQt7b2kk7sOE/+ccidNea/BoIZtxtzMAFHCOjRTCfSYJA991tDrDhuA/ja/Zx8g4bKwlASokhOLuB1KqngoN16E5VWL4NqclBmq/JulXeUPBM/OGaeJJuudFm3qZxMg2m7J5hSbQQaWLts7WWly/NlYcsJUiXuAdaGzX57RYMHSke9v4tDBxQaE=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: 1ebc98092bcde066fca4114d7810e399_86336073d9e411f1ba6252540064ee0f
+    ReservedCode2: glpzvQt7b2kk7sOE/+ccidNea/BoIZtxtzMAFHCOjRTCfSYJA991tDrDhuA/ja/Zx8g4bKwlASokhOLuB1KqngoN16E5VWL4NqclBmq/JulXeUPBM/OGaeJJuudFm3qZxMg2m7J5hSbQQaWLts7WWly/NlYcsJUiXuAdaGzX57RYMHSke9v4tDBxQaE=
+---
+
 # 青松口播抠像面板 · Qingsong RVM Panel
 
 一个跑在 Windows 本地的**口播视频一键抠像**小工具：不上传云端、不排队、不限时长、无水印，全部在一张显卡上完成。
@@ -204,3 +215,4 @@ Windows 图标缓存问题，重启资源管理器或重新登录即可刷新。
 ---
 
 *青松设计 · 本地 AI 工具系列*
+*（内容由AI生成，仅供参考）*

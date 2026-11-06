@@ -16,6 +16,7 @@
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -35,9 +36,20 @@ def base_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def resource_dir():
+    """随包内联的资源（assets、rvm_worker.py）目录。
+
+    打包成单文件 exe 后，资源被解压到 PyInstaller 的 _MEIPASS 临时目录。
+    """
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", base_dir())
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 BASE_DIR = base_dir()
+RES_DIR = resource_dir()
 CONFIG_PATH = os.path.join(BASE_DIR, "panel_config.json")
-WORKER = os.path.join(BASE_DIR, "rvm_worker.py")
+WORKER = os.path.join(RES_DIR, "rvm_worker.py")
 DEFAULT_OUT = os.path.join(BASE_DIR, "output")
 
 # 视觉
@@ -78,11 +90,48 @@ BG_FILETYPES = [
 ]
 
 
+def find_system_python():
+    """找一个可用的系统 Python 解释器。
+
+    打包成 exe 后 sys.executable 指向面板自身，绝不能拿去执行 -m venv / -c，
+    所以必须单独探测：.venv → PATH → 常见安装位置 → py 启动器。
+    """
+    me = os.path.abspath(sys.executable) if getattr(sys, "frozen", False) else ""
+    cands = []
+
+    venv_py = os.path.join(BASE_DIR, ".venv", "Scripts", "python.exe")
+    if os.path.exists(venv_py):
+        cands.append(venv_py)
+
+    if not getattr(sys, "frozen", False):
+        cands.append(sys.executable)
+
+    for name in ("python.exe", "python3.exe"):
+        found = shutil.which(name)
+        if found:
+            cands.append(found)
+
+    local_app = os.environ.get("LOCALAPPDATA", "")
+    for ver in ("Python313", "Python312", "Python311", "Python310", "Python39"):
+        cands.append(os.path.join(local_app, "Programs", "Python", ver, "python.exe"))
+        cands.append("C:\\%s\\python.exe" % ver)
+
+    for cand in cands:
+        if not cand or not os.path.exists(cand):
+            continue
+        if me and os.path.abspath(cand).lower() == me.lower():
+            continue
+        return cand
+    return ""
+
+
 def pick_python():
-    """优先用面板目录下的 .venv，其次系统解释器。"""
+    """推理/装环境要用的解释器：优先 .venv，其次系统 Python。"""
     venv_py = os.path.join(BASE_DIR, ".venv", "Scripts", "python.exe")
     if os.path.exists(venv_py):
         return venv_py
+    if getattr(sys, "frozen", False):
+        return find_system_python()
     return sys.executable
 
 
@@ -108,8 +157,13 @@ def fmt_duration(seconds):
 def load_logo_image(master, size=56, name="logo_header.png"):
     """加载 assets 下的品牌 logo，按整数倍缩放到约 size 像素（tk 原生，不依赖 PIL）。"""
     for fn in (name, "logo_header.png", "logo_badge.png", "logo.png"):
-        path = os.path.join(BASE_DIR, "assets", fn)
-        if not os.path.exists(path):
+        path = ""
+        for root in (os.path.join(BASE_DIR, "assets"), os.path.join(RES_DIR, "assets")):
+            cand = os.path.join(root, fn)
+            if os.path.exists(cand):
+                path = cand
+                break
+        if not path:
             continue
         try:
             img = tk.PhotoImage(master=master, file=path)
@@ -408,6 +462,9 @@ class RvmPanel(tk.Tk):
 
         def work():
             py = pick_python()
+            if not py or not os.path.exists(py):
+                self.msg_q.put(("env", {"error": "未找到 Python 解释器"}))
+                return
             script = (
                 "import json,sys,shutil\n"
                 "d={}\n"
@@ -458,6 +515,15 @@ class RvmPanel(tk.Tk):
             "首次下载耗时较长，期间可以看日志。是否继续？")
         if not ok:
             return
+        base_py = find_system_python()
+        if not base_py:
+            messagebox.showerror(
+                "缺少 Python",
+                "本机没有检测到 Python 解释器，无法自动创建运行环境。\n\n"
+                "请先安装 Python 3.11（安装时务必勾选 Add Python to PATH）：\n"
+                "https://www.python.org/downloads/\n\n"
+                "装好后再回到面板点「一键装环境」即可。")
+            return
         self._set_busy(True)
         self.var_status.set("正在安装依赖...")
 
@@ -467,8 +533,8 @@ class RvmPanel(tk.Tk):
             steps = []
             if not os.path.exists(venv_py):
                 self.msg_q.put(("log", "创建虚拟环境：%s" % venv_dir))
-                steps.append([sys.executable, "-m", "venv", venv_dir])
-            py = venv_py if os.path.exists(venv_py) else sys.executable
+                steps.append([base_py, "-m", "venv", venv_dir])
+            py = venv_py if os.path.exists(venv_py) else base_py
             steps += [
                 [py, "-m", "pip", "install", "--upgrade", "pip"],
                 [py, "-m", "pip", "install", "torch", "torchvision",
@@ -516,6 +582,13 @@ class RvmPanel(tk.Tk):
             return
 
         py = pick_python()
+        if not py or not os.path.exists(py):
+            messagebox.showerror(
+                "缺少 Python",
+                "没有可用的 Python 解释器，无法启动推理。\n\n"
+                "请先安装 Python 3.11（勾选 Add Python to PATH），\n"
+                "再点「一键装环境」装好 GPU 依赖。")
+            return
         info = self.env_info
         if info.get("torch") in (None, "缺失"):
             if not messagebox.askyesno(
@@ -675,7 +748,9 @@ class RvmPanel(tk.Tk):
     def _render_env(self):
         info = self.env_info
         if info.get("error"):
-            self.var_env.set("环境检测失败")
+            self.var_env.set("环境未就绪：%s" % info.get("error"))
+            self.log_line("环境提示：%s —— 请先安装 Python 3.11，再点「一键装环境」。"
+                          % info.get("error"))
             return
         torch_v = info.get("torch", "缺失")
         cuda = "CUDA就绪" if info.get("cuda") else "CUDA不可用"
