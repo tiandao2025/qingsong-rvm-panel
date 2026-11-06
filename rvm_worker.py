@@ -150,6 +150,220 @@ class VideoSink(object):
 
 
 # ---------------------------------------------------------------------------
+# 原声音轨处理（ffmpeg）
+# ---------------------------------------------------------------------------
+_LOCALAPPDATA = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
+_APP_DIR = (os.path.dirname(os.path.abspath(sys.executable))
+            if getattr(sys, "frozen", False)
+            else os.path.dirname(os.path.abspath(__file__)))
+_FFMPEG_CANDIDATES = [
+    os.path.join(_APP_DIR, "ffmpeg.exe"),
+    os.path.join(_APP_DIR, "bin", "ffmpeg.exe"),
+    os.path.join(_LOCALAPPDATA, "Programs", "ffmpeg", "bin", "ffmpeg.exe"),
+    r"C:\ffmpeg\bin\ffmpeg.exe",
+    r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+]
+_FFPROBE_CANDIDATES = [
+    os.path.join(_APP_DIR, "ffprobe.exe"),
+    os.path.join(_APP_DIR, "bin", "ffprobe.exe"),
+    os.path.join(_LOCALAPPDATA, "Programs", "ffmpeg", "bin", "ffprobe.exe"),
+    r"C:\ffmpeg\bin\ffprobe.exe",
+    r"C:\Program Files\ffmpeg\bin\ffprobe.exe",
+]
+_TOOL_CACHE = {}
+
+
+def _find_tool(name, candidates):
+    """优先 PATH 查找，失败再逐个尝试常见安装路径。"""
+    import shutil
+
+    found = shutil.which(name)
+    if found:
+        return found
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return ""
+
+
+def find_ffmpeg():
+    if "ffmpeg" not in _TOOL_CACHE:
+        _TOOL_CACHE["ffmpeg"] = _find_tool("ffmpeg", _FFMPEG_CANDIDATES)
+    return _TOOL_CACHE["ffmpeg"]
+
+
+def find_ffprobe():
+    if "ffprobe" not in _TOOL_CACHE:
+        probe = _find_tool("ffprobe", _FFPROBE_CANDIDATES)
+        if not probe:
+            ff = find_ffmpeg()
+            if ff:
+                guess = os.path.join(os.path.dirname(ff), "ffprobe.exe" if os.name == "nt" else "ffprobe")
+                if os.path.isfile(guess):
+                    probe = guess
+        _TOOL_CACHE["ffprobe"] = probe
+    return _TOOL_CACHE["ffprobe"]
+
+
+def _run_cmd(cmd, timeout=1800):
+    import subprocess
+
+    kw = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "timeout": timeout}
+    if os.name == "nt":
+        kw["creationflags"] = 0x08000000  # CREATE_NO_WINDOW，避免面板后面弹黑窗
+    try:
+        proc = subprocess.run(cmd, **kw)
+    except Exception as exc:
+        return 1, "", "%s: %s" % (type(exc).__name__, exc)
+    return (proc.returncode,
+            proc.stdout.decode("utf-8", "replace"),
+            proc.stderr.decode("utf-8", "replace"))
+
+
+def probe_has_audio(src, ffprobe=""):
+    """True/False 表示确定结果；None 表示无法判断（缺 ffprobe 或探测失败）。"""
+    if not ffprobe:
+        return None
+    code, out, _err = _run_cmd([ffprobe, "-v", "error", "-select_streams", "a",
+                                "-show_entries", "stream=index", "-of", "csv=p=0", src],
+                               timeout=120)
+    if code != 0:
+        return None
+    return bool(out.strip())
+
+
+def _err_tail(err):
+    lines = [x for x in (err or "").strip().splitlines() if x.strip()]
+    return " | ".join(lines[-2:]) if lines else ""
+
+
+def mux_audio(video_path, src, ffmpeg, limit_sec=0.0):
+    """把 src 的音轨合进 video_path：视频流 copy 不重编码，音频转 aac。
+
+    返回 (ok, msg, no_audio)：
+      ok       是否成功合入
+      msg      给面板日志用的说明
+      no_audio 原视频确实没有音轨（此时属正常跳过，不算失败）
+    """
+    if not os.path.isfile(video_path):
+        return False, "输出文件不存在：%s" % os.path.basename(video_path), False
+    tmp = os.path.join(os.path.dirname(video_path),
+                       "_audio_tmp_%s" % os.path.basename(video_path))
+    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+           "-i", video_path, "-i", src,
+           "-map", "0:v:0", "-map", "1:a:0",
+           "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ac", "2",
+           "-shortest", "-movflags", "+faststart"]
+    if limit_sec and limit_sec > 0:
+        cmd += ["-t", "%.3f" % limit_sec]
+    cmd.append(tmp)
+    code, _out, err = _run_cmd(cmd)
+    if code != 0 or not os.path.isfile(tmp) or os.path.getsize(tmp) < 1024:
+        try:
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        low = (err or "").lower()
+        if "does not contain any stream" in low or "matches no streams" in low:
+            return False, "原视频不含音频流，跳过合轨", True
+        tail = _err_tail(err)
+        return False, "ffmpeg 合轨失败%s" % (("：" + tail) if tail else ""), False
+    try:
+        os.replace(tmp, video_path)
+    except Exception as exc:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+        return False, "合轨后替换原文件失败：%s" % exc, False
+    return True, "已合入原声", False
+
+
+def export_audio(src, out_m4a, ffmpeg, limit_sec=0.0):
+    """把 src 的音轨单独导出为 m4a。返回 (ok, msg, no_audio)。"""
+    tmp = os.path.join(os.path.dirname(out_m4a),
+                       "_audio_tmp_%s" % os.path.basename(out_m4a))
+    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", src,
+           "-vn", "-c:a", "aac", "-b:a", "192k", "-ac", "2"]
+    if limit_sec and limit_sec > 0:
+        cmd += ["-t", "%.3f" % limit_sec]
+    cmd.append(tmp)
+    code, _out, err = _run_cmd(cmd)
+    if code != 0 or not os.path.isfile(tmp) or os.path.getsize(tmp) < 1024:
+        try:
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        low = (err or "").lower()
+        if "does not contain any stream" in low or "matches no streams" in low:
+            return False, "原视频不含音频流，跳过导出", True
+        tail = _err_tail(err)
+        return False, "导出 m4a 失败%s" % (("：" + tail) if tail else ""), False
+    try:
+        os.replace(tmp, out_m4a)
+    except Exception as exc:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+        return False, "m4a 落盘失败：%s" % exc, False
+    return True, "原声已导出", False
+
+
+def handle_audio(inp, stem, out_dir, mp4_outputs, is_png, limit_sec=0.0):
+    """统一的音轨后处理入口：mp4 合原声；PNG 序列则额外导出同名 m4a。"""
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        emit("LOG", "音轨：未找到 ffmpeg（PATH 与兜底路径均不可用），本次输出不含原声")
+        return
+    has_audio = probe_has_audio(inp, find_ffprobe())
+    if has_audio is False:
+        emit("LOG", "音轨：原视频不含音频流，跳过合轨（输出保持无声）")
+        return
+    if has_audio is None:
+        emit("LOG", "音轨：无法预判原视频是否含音频，尝试合轨（无音轨会自动跳过）")
+
+    if is_png:
+        target = os.path.join(out_dir, "%s.m4a" % stem)
+        ok, msg, no_audio = export_audio(inp, target, ffmpeg, limit_sec)
+        if no_audio:
+            emit("LOG", "音轨：原视频不含音频流，跳过 m4a 导出")
+        elif ok:
+            emit("LOG", "音轨：原声已导出 → %s" % os.path.basename(target))
+        else:
+            emit("LOG", "音轨：%s" % msg)
+        return
+
+    if not mp4_outputs:
+        emit("LOG", "音轨：本次未生成 mp4，跳过合轨")
+        return
+
+    ok_count = 0
+    skipped = 0
+    failures = []
+    for path in mp4_outputs:
+        ok, msg, no_audio = mux_audio(path, inp, ffmpeg, limit_sec)
+        name = os.path.basename(path)
+        if no_audio:
+            skipped += 1
+            emit("LOG", "音轨：原视频不含音频流，跳过 %s" % name)
+        elif ok:
+            ok_count += 1
+            emit("LOG", "音轨：%s 已合入原声" % name)
+        else:
+            failures.append("%s（%s）" % (name, msg))
+            emit("LOG", "音轨：%s 合轨失败 %s" % (name, msg))
+    if skipped and not ok_count and not failures:
+        return
+    if ok_count:
+        emit("LOG", "音轨：共 %d 个 mp4 已带原声" % ok_count)
+    if failures:
+        emit("LOG", "音轨：%d 个失败，其余输出不受影响" % len(failures))
+
+
+# ---------------------------------------------------------------------------
 # 背景合成
 # ---------------------------------------------------------------------------
 def norm_variant(raw):
@@ -327,18 +541,23 @@ def main():
     is_png = (out_type == "png_sequence")
     out_size = (vstream.codec_context.width, vstream.codec_context.height)
     sinks = []
+    mp4_outputs = []  # 需要合入原声的 mp4 清单
+
+    def _add_sink(key, tag, folder, suffix, gray=False):
+        if is_png:
+            path = os.path.join(out_dir, folder)
+        else:
+            path = os.path.join(out_dir, "%s_%s.mp4" % (stem, suffix))
+            mp4_outputs.append(path)
+        sinks.append((key, VideoSink(path, fps, mbps, gray=gray, png=is_png,
+                                     size=out_size), tag))
+
     if want_comp:
-        sinks.append(("comp", VideoSink(
-            os.path.join(out_dir, "comp") if is_png else os.path.join(out_dir, "%s_comp.mp4" % stem),
-            fps, mbps, gray=False, png=is_png, size=out_size), "composition"))
+        _add_sink("comp", "composition", "comp", "comp")
     if want_fgr:
-        sinks.append(("fgr", VideoSink(
-            os.path.join(out_dir, "fgr") if is_png else os.path.join(out_dir, "%s_fgr.mp4" % stem),
-            fps, mbps, gray=False, png=is_png, size=out_size), "foreground"))
+        _add_sink("fgr", "foreground", "fgr", "fgr")
     if want_alpha:
-        sinks.append(("pha", VideoSink(
-            os.path.join(out_dir, "pha") if is_png else os.path.join(out_dir, "%s_alpha.mp4" % stem),
-            fps, mbps, gray=True, png=is_png, size=out_size), "alpha"))
+        _add_sink("pha", "alpha", "pha", "alpha", gray=True)
 
     bg = torch.tensor([0.0, 1.0, 0.0], device=device).view(1, 3, 1, 1)  # 绿幕兜底
     bg_provider = BackgroundProvider(bg_path, out_size[0], out_size[1], device)
@@ -399,6 +618,14 @@ def main():
     for _, sink, _ in sinks:
         sink.close()
     container.close()
+
+    # ---- 原声保留：mp4 合原音轨 / PNG 序列导出 m4a ----
+    limit_sec = (done_frames / fps) if (max_sec > 0 and fps > 0) else 0.0
+    if sinks and bool(cfg.get("keep_audio", True)):
+        try:
+            handle_audio(inp, stem, out_dir, mp4_outputs, is_png, limit_sec)
+        except Exception as exc:
+            emit("LOG", "音轨：处理异常已跳过（%s: %s）" % (type(exc).__name__, exc))
 
     cost = time.time() - t0
     emit("LOG", "完成 %d 帧，耗时 %.1f 秒（%.1f 帧/秒）" % (

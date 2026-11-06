@@ -12,7 +12,7 @@ AIGC:
 # 青松口播抠像面板 · Qingsong RVM Panel
 
 > **不想折腾环境？直接下解压即用包**
-> 👉 [Releases 下载 qingsong-rvm-panel-v1.0.0-win64.zip](https://github.com/tiandao2025/qingsong-rvm-panel/releases/latest)
+> 👉 [Releases 下载 qingsong-rvm-panel-v1.0.1-win64.zip](https://github.com/tiandao2025/qingsong-rvm-panel/releases/latest)
 > 解压 → 双击 `一键装环境.bat`（装一次依赖，约 2~3 GB）→ 双击 `qingsong-rvm-panel.exe` 开始抠像。
 > 面板本身已打包成单个 exe（无需 Python 即可打开界面），只有 GPU 依赖需要一次性安装。
 
@@ -139,6 +139,8 @@ rvm-panel\
 | 前景 | `xxx_fgr.mp4` | 只有人，纯黑底，用于后期叠加 |
 | Alpha | `xxx_alpha.mp4` | 灰度蒙版，给专业合成软件用 |
 
+**原声自动保留**：输出 MP4 时程序会用 ffmpeg 把原片音轨合进每个 mp4（视频流不重编码，音频转 AAC 192k）；输出 PNG 序列时在同目录生成同名 `.m4a` 原声文件。不再需要手动合音轨。
+
 ### 想要真正带透明通道的成片
 
 MP4 装不下透明通道，直接输出 alpha 视频会变黑底。正确做法：
@@ -181,7 +183,14 @@ rvm-panel\
 「并行帧数」从 12 降到 4，或下采样比调小一档；长视频先用「试跑时长」抽样验证。
 
 **Q：输出视频没有声音？**
-正常，RVM 只处理画面。用 ffmpeg 把原片音轨合回去：
+v1.0.1 起已默认**自动保留原声**，正常情况无需处理。排查顺序：
+
+1. 日志里出现「已合入原音频」即成功，直接使用 `xxx_comp.mp4`；
+2. 日志提示「原视频无音频流」表示素材自身无声，属正常跳过；
+3. 日志提示「未找到 ffmpeg」表示 PATH 与常见安装路径均未找到 ffmpeg，装好并加入 PATH 后重跑；
+4. 输出格式为 PNG 序列时，原声是同目录的同名 `xxx.m4a`，剪映中拖到同轨对齐即可。
+
+个别文件合入失败只影响该文件，其余输出照常。需要手工合成仍可用：
 
 ```powershell
 ffmpeg -i xxx_comp.mp4 -i 原片.mp4 -c copy -map 0:v:0 -map 1:a:0 -shortest 成品.mp4

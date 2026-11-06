@@ -2,6 +2,12 @@ name: Build Release Package
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（例：v1.0.1，可省略 v 前缀）'
+        required: false
+        default: 'v1.0.1'
+        type: string
   push:
     tags:
       - 'v*'
@@ -16,6 +22,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'push') {
+            $ver = $env:GITHUB_REF_NAME
+          } else {
+            $ver = '${{ inputs.version }}'
+          }
+          $ver = "$ver".Trim()
+          if (-not $ver) { $ver = 'v1.0.1' }
+          if (-not $ver.StartsWith('v')) { $ver = "v$ver" }
+          if ($ver -notmatch '^v\d+\.\d+\.\d+') {
+            throw "版本号格式非法：$ver（应形如 v1.0.1）"
+          }
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "本次发布版本：$ver"
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
@@ -38,16 +62,27 @@ jobs:
       - name: Assemble portable package
         shell: pwsh
         run: |
+          $ver = '${{ steps.ver.outputs.version }}'
+          $zip = "qingsong-rvm-panel-$ver-win64.zip"
           New-Item -ItemType Directory -Force -Path pkg | Out-Null
           Copy-Item dist/qingsong-rvm-panel.exe pkg/
           Copy-Item release-assets/* pkg/
-          Compress-Archive -Path pkg/* -DestinationPath qingsong-rvm-panel-v1.0.0-win64.zip -CompressionLevel Optimal
+          Compress-Archive -Path pkg/* -DestinationPath $zip -CompressionLevel Optimal
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Get-ChildItem pkg | Select-Object Name, Length
+          Write-Host "打包完成：$zip"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: Qingsong RVM Panel v1.0.0 (Windows x64)
-          files: qingsong-rvm-panel-v1.0.0-win64.zip
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: Qingsong RVM Panel ${{ steps.ver.outputs.version }} (Windows x64)
+          files: qingsong-rvm-panel-${{ steps.ver.outputs.version }}-win64.zip
           fail_on_unmatched_files: true
+          body: |
+            青松口播抠像面板 ${{ steps.ver.outputs.version }}（Windows x64，解压即用）
+
+            - 修复：输出视频自动保留原片音轨（MP4 直接带原声，PNG 序列同时导出同名 .m4a），无需再手动合音轨
+            - 运行需本机已安装 ffmpeg（已在 PATH 时自动启用；未安装时输出仍为无声）
+
+            使用：解压 → 双击 `一键装环境.bat`（一次性安装 GPU 依赖）→ 双击 `qingsong-rvm-panel.exe`
