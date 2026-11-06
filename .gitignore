@@ -1,0 +1,44 @@
+# ================= Python 运行环境 =================
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ================= 本机专属文件 / 备份 =================
+# 面板参数配置（含本机绝对路径，首次运行会自动生成）
+panel_config.json
+_last_job.json
+*.bak
+
+# ================= 临时文件与下载缓存 =================
+temp_download/
+*.whl
+.pip_cache/
+Thumbs.db
+desktop.ini
+
+# ================= 日志 =================
+*.log
+logs/
+
+# ================= 输入 / 输出素材（大文件不随仓库发布） =================
+demo/
+output/
+input/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.flv
+*.wav
+*.mp3
+
+# ================= 上游 RVM 依赖（外部仓库，不入本仓库） =================
+# rvm_repo 是 RobustVideoMatting 的独立 git 克隆，且权重文件体积大
+# （rvm_resnet50.pth 103MB，超过 GitHub 单文件 50MB 限制）。
+# 请按 README 说明自行克隆源码并下载权重到该目录。
+rvm_repo/
